@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { MetricCard } from './components/MetricCard'
-import { PaginationControls } from './components/PaginationControls'
+import { PaginationControls } from './components/PaginationControls.tsx'
 import { PokemonCard } from './components/PokemonCard'
 import {
   loadPokemonDetails,
