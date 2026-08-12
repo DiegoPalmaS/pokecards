@@ -1,8 +1,6 @@
 type PaginationControlsProps = {
   currentPage: number
   totalPages: number
-  pageSize: number
-  totalCount: number
   onPageChange: (page: number) => void
 }
 
@@ -25,8 +23,6 @@ function buildPages(currentPage: number, totalPages: number) {
 export function PaginationControls({
   currentPage,
   totalPages,
-  pageSize,
-  totalCount,
   onPageChange,
 }: PaginationControlsProps) {
   const pages = buildPages(currentPage, totalPages)

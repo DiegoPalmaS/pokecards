@@ -248,15 +248,17 @@ function App() {
           <MetricCard
             label="Capturados"
             value={`${caughtCount}`}
+            hint={`${totalCount > 0 ? totalCount : '--'} en la colección`}
           />
           <MetricCard
             label="Pendientes"
             value={`${Math.max(totalCount - caughtCount, 0)}`}
+            hint="Carta faltante"
           />
           <MetricCard
             label="Progreso"
             value={`${completion.toFixed(0)}%`}
-            
+            hint="Guardado automáticamente"
           />
         </div>
       </section>
@@ -360,8 +362,6 @@ function App() {
           currentPage={safePage}
           totalPages={totalPages}
           onPageChange={goToPage}
-          pageSize={pageSize}
-          totalCount={filteredEntries.length}
         />
       </section>
     </main>
