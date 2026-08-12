@@ -22,6 +22,7 @@ import {
 import './App.css'
 
 type ViewFilter = 'all' | 'caught' | 'missing'
+type AppView = 'home' | 'login'
 
 const STORAGE_KEY = 'pokecard-caught-v1'
 const OWNER_EMAIL = import.meta.env.VITE_OWNER_EMAIL ?? ''
@@ -68,6 +69,14 @@ function readStoredCaughtIds() {
   }
 }
 
+function getCurrentAppView(): AppView {
+  if (typeof window === 'undefined') {
+    return 'home'
+  }
+
+  return window.location.hash === '#/login' ? 'login' : 'home'
+}
+
 function App() {
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
   const [catalogEntries, setCatalogEntries] = useState<PokemonIndexEntry[]>([])
@@ -82,7 +91,7 @@ function App() {
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [loginError, setLoginError] = useState('')
-  const [syncError, setSyncError] = useState('')
+  const [appView, setAppView] = useState<AppView>(() => getCurrentAppView())
   const [query, setQuery] = useState('')
   const [view, setView] = useState<ViewFilter>('all')
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -188,13 +197,17 @@ function App() {
 
         setOwnerUserId(user?.id ?? null)
         setLoginEmail(user?.email ?? '')
+
+        if (user?.id && getCurrentAppView() === 'login') {
+          navigateTo('home')
+        }
       })
       .catch(() => {
         if (!isActive) {
           return
         }
 
-        setLoginError('No se pudo recuperar la sesión actual de Supabase.')
+        setLoginError('No se pudo recuperar la sesión.')
       })
 
     const {
@@ -206,6 +219,10 @@ function App() {
 
       setOwnerUserId(session?.user?.id ?? null)
       setLoginEmail(session?.user?.email ?? '')
+
+      if (session?.user?.id && getCurrentAppView() === 'login') {
+        navigateTo('home')
+      }
     })
 
     return () => {
@@ -238,7 +255,6 @@ function App() {
           return
         }
 
-        setSyncError('No se pudo sincronizar el progreso desde Supabase.')
         setProgressHydrated(true)
       })
 
@@ -306,7 +322,7 @@ function App() {
     const sorted = Array.from(caughtIds).sort((left, right) => left - right)
 
     saveSharedProgress(sorted, ownerUserId).catch(() => {
-      setSyncError('No se pudo guardar el progreso en Supabase.')
+      return undefined
     })
   }, [canEdit, caughtIds, ownerUserId, progressHydrated])
 
@@ -316,6 +332,17 @@ function App() {
   )
 
   const completion = totalCount > 0 ? (caughtCount / totalCount) * 100 : 0
+
+  function navigateTo(view: AppView) {
+    if (typeof window === 'undefined') {
+      setAppView(view)
+      return
+    }
+
+    const nextHash = view === 'login' ? '#/login' : '#/'
+    window.location.hash = nextHash
+    setAppView(view)
+  }
 
   function toggleCaught(id: number) {
     if (!canEdit) {
@@ -366,10 +393,10 @@ function App() {
         setOwnerUserId(user?.id ?? null)
         setLoginPassword('')
         setLoginError('')
+        navigateTo('home')
       })
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : 'Error desconocido'
-        setLoginError(`No se pudo iniciar sesión: ${message}`)
+      .catch(() => {
+        setLoginError('No se pudo iniciar sesión.')
       })
   }
 
@@ -385,6 +412,73 @@ function App() {
       })
   }
 
+  useEffect(() => {
+    const handleHashChange = () => {
+      setAppView(getCurrentAppView())
+    }
+
+    window.addEventListener('hashchange', handleHashChange)
+
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange)
+    }
+  }, [])
+
+  if (appView === 'login') {
+    return (
+      <main className="auth-view">
+        <section className="auth-card">
+          <h1>Iniciar sesión</h1>
+          <p>Acceso exclusivo del propietario para editar estados de la colección.</p>
+
+          <form className="owner-login" onSubmit={handleOwnerLogin}>
+            <label htmlFor="owner-email">Email</label>
+            <input
+              id="owner-email"
+              type="email"
+              autoComplete="email"
+              value={loginEmail}
+              onChange={(event) => setLoginEmail(event.target.value)}
+              required
+            />
+            <label htmlFor="owner-password">Contraseña</label>
+            <input
+              id="owner-password"
+              type="password"
+              autoComplete="current-password"
+              value={loginPassword}
+              onChange={(event) => setLoginPassword(event.target.value)}
+              required
+            />
+            {loginError ? <p className="owner-login__error">{loginError}</p> : null}
+            <div className="auth-actions">
+              <button type="submit" className="owner-login__submit">
+                Ingresar
+              </button>
+              <button
+                type="button"
+                className="owner-login__back"
+                onClick={() => navigateTo('home')}
+              >
+                Volver
+              </button>
+            </div>
+            {!isSupabaseConfigured ? (
+              <p className="owner-login__error">
+                Falta configuración para iniciar sesión.
+              </p>
+            ) : null}
+            {!ownerEmailIsConfigured ? (
+              <p className="owner-login__error">
+                Falta configurar el email propietario.
+              </p>
+            ) : null}
+          </form>
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="app-shell">
       <section className="hero-panel">
@@ -394,7 +488,7 @@ function App() {
           {canEdit ? (
             <div className="owner-panel">
               <p className="owner-message">
-                Sesión de propietario activa con Supabase.
+                Sesión de propietario activa.
               </p>
               <button
                 type="button"
@@ -405,42 +499,13 @@ function App() {
               </button>
             </div>
           ) : (
-            <form className="owner-login" onSubmit={handleOwnerLogin}>
-              <p className="owner-login__title">Acceso propietario</p>
-              <label htmlFor="owner-email">Email</label>
-              <input
-                id="owner-email"
-                type="email"
-                autoComplete="email"
-                value={loginEmail}
-                onChange={(event) => setLoginEmail(event.target.value)}
-                required
-              />
-              <label htmlFor="owner-password">Contraseña</label>
-              <input
-                id="owner-password"
-                type="password"
-                autoComplete="current-password"
-                value={loginPassword}
-                onChange={(event) => setLoginPassword(event.target.value)}
-                required
-              />
-              {loginError ? <p className="owner-login__error">{loginError}</p> : null}
-              <button type="submit" className="owner-login__submit">
-                Ingresar
-              </button>
-              {!isSupabaseConfigured ? (
-                <p className="owner-login__error">
-                  Falta configurar VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY.
-                </p>
-              ) : null}
-              {!ownerEmailIsConfigured ? (
-                <p className="owner-login__error">
-                  VITE_OWNER_EMAIL no está configurado; usa tu email real de propietario.
-                </p>
-              ) : null}
-              {syncError ? <p className="owner-login__error">{syncError}</p> : null}
-            </form>
+            <button
+              type="button"
+              className="owner-login-cta"
+              onClick={() => navigateTo('login')}
+            >
+              Iniciar sesión
+            </button>
           )}
         </div>
 
