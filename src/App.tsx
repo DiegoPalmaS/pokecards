@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { MetricCard } from './components/MetricCard'
 import { PaginationControls } from './components/PaginationControls'
 import { PokemonCard } from './components/PokemonCard'
@@ -10,11 +10,21 @@ import {
   type PokemonIndexEntry,
   type PokemonTypeMap,
 } from './data/pokedex'
+import {
+  fetchSharedProgress,
+  getCurrentUser,
+  isSupabaseConfigured,
+  onAuthStateChange,
+  saveSharedProgress,
+  signInOwner,
+  signOutOwner,
+} from './lib/supabase'
 import './App.css'
 
 type ViewFilter = 'all' | 'caught' | 'missing'
 
 const STORAGE_KEY = 'pokecard-caught-v1'
+const OWNER_EMAIL = import.meta.env.VITE_OWNER_EMAIL ?? ''
 const MAX_ROWS_PER_PAGE = 8
 const MIN_CARD_WIDTH = 185
 const GRID_GAP = 16
@@ -68,10 +78,20 @@ function App() {
   const [caughtIds, setCaughtIds] = useState<Set<number>>(
     () => readStoredCaughtIds(),
   )
+  const [ownerUserId, setOwnerUserId] = useState<string | null>(null)
+  const [loginEmail, setLoginEmail] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [syncError, setSyncError] = useState('')
   const [query, setQuery] = useState('')
   const [view, setView] = useState<ViewFilter>('all')
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [loadedPageKey, setLoadedPageKey] = useState('')
+  const [progressHydrated, setProgressHydrated] = useState(() => !isSupabaseConfigured)
+  const normalizedOwnerEmail = OWNER_EMAIL.trim().toLowerCase()
+  const ownerEmailIsConfigured =
+    normalizedOwnerEmail.length > 0 &&
+    !normalizedOwnerEmail.includes('tu-email-propietario')
 
   const pageSize = useMemo(
     () => calculatePageSize(viewportWidth),
@@ -114,6 +134,17 @@ function App() {
   )
   const isPageLoading =
     status === 'ready' && pageEntries.length > 0 && loadedPageKey !== pageKey
+  const canEdit = useMemo(() => {
+    if (!ownerUserId) {
+      return false
+    }
+
+    if (!ownerEmailIsConfigured) {
+      return true
+    }
+
+    return loginEmail.trim().toLowerCase() === normalizedOwnerEmail
+  }, [ownerUserId, loginEmail, normalizedOwnerEmail, ownerEmailIsConfigured])
 
   useEffect(() => {
     let isActive = true
@@ -141,6 +172,80 @@ function App() {
       isActive = false
     }
   }, [])
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      return
+    }
+
+    let isActive = true
+
+    getCurrentUser()
+      .then((user) => {
+        if (!isActive) {
+          return
+        }
+
+        setOwnerUserId(user?.id ?? null)
+        setLoginEmail(user?.email ?? '')
+      })
+      .catch(() => {
+        if (!isActive) {
+          return
+        }
+
+        setLoginError('No se pudo recuperar la sesión actual de Supabase.')
+      })
+
+    const {
+      data: { subscription },
+    } = onAuthStateChange(async (_event, session) => {
+      if (!isActive) {
+        return
+      }
+
+      setOwnerUserId(session?.user?.id ?? null)
+      setLoginEmail(session?.user?.email ?? '')
+    })
+
+    return () => {
+      isActive = false
+      subscription.unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      return
+    }
+
+    let isActive = true
+
+    fetchSharedProgress()
+      .then((sharedIds) => {
+        if (!isActive) {
+          return
+        }
+
+        if (Array.isArray(sharedIds)) {
+          setCaughtIds(new Set(sharedIds))
+        }
+
+        setProgressHydrated(true)
+      })
+      .catch(() => {
+        if (!isActive) {
+          return
+        }
+
+        setSyncError('No se pudo sincronizar el progreso desde Supabase.')
+        setProgressHydrated(true)
+      })
+
+    return () => {
+      isActive = false
+    }
+  }, [ownerUserId])
 
   useEffect(() => {
     let isActive = true
@@ -193,6 +298,18 @@ function App() {
     )
   }, [caughtIds])
 
+  useEffect(() => {
+    if (!isSupabaseConfigured || !canEdit || !ownerUserId || !progressHydrated) {
+      return
+    }
+
+    const sorted = Array.from(caughtIds).sort((left, right) => left - right)
+
+    saveSharedProgress(sorted, ownerUserId).catch(() => {
+      setSyncError('No se pudo guardar el progreso en Supabase.')
+    })
+  }, [canEdit, caughtIds, ownerUserId, progressHydrated])
+
   const caughtCount = useMemo(
     () => Math.min(caughtIds.size, totalCount),
     [caughtIds, totalCount],
@@ -201,6 +318,10 @@ function App() {
   const completion = totalCount > 0 ? (caughtCount / totalCount) * 100 : 0
 
   function toggleCaught(id: number) {
+    if (!canEdit) {
+      return
+    }
+
     setCaughtIds((current) => {
       const next = new Set(current)
 
@@ -237,11 +358,90 @@ function App() {
     }
   }
 
+  function handleOwnerLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    signInOwner(loginEmail, loginPassword)
+      .then(({ user }) => {
+        setOwnerUserId(user?.id ?? null)
+        setLoginPassword('')
+        setLoginError('')
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : 'Error desconocido'
+        setLoginError(`No se pudo iniciar sesión: ${message}`)
+      })
+  }
+
+  function handleOwnerLogout() {
+    signOutOwner()
+      .then(() => {
+        setOwnerUserId(null)
+        setLoginPassword('')
+        setLoginError('')
+      })
+      .catch(() => {
+        setLoginError('No se pudo cerrar sesión.')
+      })
+  }
+
   return (
     <main className="app-shell">
       <section className="hero-panel">
         <div className="hero-copy">
           <h1>Pokédex Personal</h1>
+
+          {canEdit ? (
+            <div className="owner-panel">
+              <p className="owner-message">
+                Sesión de propietario activa con Supabase.
+              </p>
+              <button
+                type="button"
+                className="owner-logout"
+                onClick={handleOwnerLogout}
+              >
+                Cerrar sesión
+              </button>
+            </div>
+          ) : (
+            <form className="owner-login" onSubmit={handleOwnerLogin}>
+              <p className="owner-login__title">Acceso propietario</p>
+              <label htmlFor="owner-email">Email</label>
+              <input
+                id="owner-email"
+                type="email"
+                autoComplete="email"
+                value={loginEmail}
+                onChange={(event) => setLoginEmail(event.target.value)}
+                required
+              />
+              <label htmlFor="owner-password">Contraseña</label>
+              <input
+                id="owner-password"
+                type="password"
+                autoComplete="current-password"
+                value={loginPassword}
+                onChange={(event) => setLoginPassword(event.target.value)}
+                required
+              />
+              {loginError ? <p className="owner-login__error">{loginError}</p> : null}
+              <button type="submit" className="owner-login__submit">
+                Ingresar
+              </button>
+              {!isSupabaseConfigured ? (
+                <p className="owner-login__error">
+                  Falta configurar VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY.
+                </p>
+              ) : null}
+              {!ownerEmailIsConfigured ? (
+                <p className="owner-login__error">
+                  VITE_OWNER_EMAIL no está configurado; usa tu email real de propietario.
+                </p>
+              ) : null}
+              {syncError ? <p className="owner-login__error">{syncError}</p> : null}
+            </form>
+          )}
         </div>
 
         <div className="hero-stats">
@@ -353,6 +553,7 @@ function App() {
                 entry={entry}
                 caught={caughtIds.has(entry.id)}
                 onToggle={toggleCaught}
+                canEdit={canEdit}
               />
             ))}
           </div>

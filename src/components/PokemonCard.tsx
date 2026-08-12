@@ -4,9 +4,10 @@ type PokemonCardProps = {
   entry: PokemonEntry
   caught: boolean
   onToggle: (id: number) => void
+  canEdit: boolean
 }
 
-export function PokemonCard({ entry, caught, onToggle }: PokemonCardProps) {
+export function PokemonCard({ entry, caught, onToggle, canEdit }: PokemonCardProps) {
   return (
     <article className={caught ? 'pokemon-card caught' : 'pokemon-card'}>
       <div className="pokemon-card__art">
@@ -30,14 +31,18 @@ export function PokemonCard({ entry, caught, onToggle }: PokemonCardProps) {
           ))}
         </div> */}
 
-        <button
-          type="button"
-          className={caught ? 'toggle-button caught' : 'toggle-button'}
-          onClick={() => onToggle(entry.id)}
-          aria-pressed={caught}
-        >
-          {caught ? 'Marcar como faltante' : 'Marcar como capturado'}
-        </button>
+        {canEdit ? (
+          <button
+            type="button"
+            className={caught ? 'toggle-button caught' : 'toggle-button'}
+            onClick={() => onToggle(entry.id)}
+            aria-pressed={caught}
+          >
+            {caught ? 'Marcar como faltante' : 'Marcar como capturado'}
+          </button>
+        ) : (
+          <p className="read-only-note">Solo el propietario puede editar estados.</p>
+        )}
       </div>
     </article>
   )
