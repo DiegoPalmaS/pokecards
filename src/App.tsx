@@ -513,17 +513,17 @@ function App() {
           <MetricCard
             label="Capturados"
             value={`${caughtCount}`}
-            hint={`${totalCount > 0 ? totalCount : '--'} en la colección`}
+            hint={`de ${totalCount > 0 ? totalCount : '--'}`}
           />
           <MetricCard
             label="Pendientes"
             value={`${Math.max(totalCount - caughtCount, 0)}`}
-            hint="Carta faltante"
+            hint="Cartas faltantes"
           />
           <MetricCard
             label="Progreso"
             value={`${completion.toFixed(0)}%`}
-            hint="Guardado automáticamente"
+            hint="Para completar la pokédex"
           />
         </div>
       </section>

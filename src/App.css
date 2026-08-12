@@ -76,7 +76,7 @@
 .owner-login__title,
 .owner-login__error,
 .read-only-note {
-  margin: 0;
+  display: none;
 }
 
 .owner-message,
